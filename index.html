@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="si"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b6b8a"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon-192.png">
+<title>මඩුල්ල ජල බිල්පත්</title>
+<style>
+:root{--b:#0b6b8a;--g:#1a7f37;--r:#c62828;--o:#e08a00;--bg:#f2f5f7;--c:#fff;--t:#1b2a33;--m:#5d7280}
+@media(prefers-color-scheme:dark){:root{--bg:#10181d;--c:#1a252c;--t:#e8eef1;--m:#9bb0bb}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--t);font:16px/1.45 system-ui,"Noto Sans Sinhala","Iskoola Pota",sans-serif;padding:env(safe-area-inset-top) 0 calc(64px + env(safe-area-inset-bottom))}
+header{position:sticky;top:0;z-index:5;background:var(--b);color:#fff;padding:10px 12px}header b{font-size:17px}
+.row{display:flex;gap:8px;align-items:center;justify-content:space-between}.sp{flex:1}
+.bar{height:6px;background:#ffffff40;border-radius:3px;margin-top:6px}.bar i{display:block;height:100%;background:#7ee787;border-radius:3px}
+main{padding:10px 12px}.card{background:var(--c);border-radius:12px;padding:12px;margin:0 0 10px;box-shadow:0 1px 3px #0002}
+.card.tap{cursor:pointer}.m{color:var(--m);font-size:14px}.err{color:var(--r);font-weight:600}.ok{color:var(--g)}
+input,select{width:100%;font:inherit;padding:14px;border:2px solid #9bb0bb88;border-radius:10px;background:var(--c);color:var(--t);min-height:52px}
+input.big{font-size:26px;text-align:center;letter-spacing:2px}label{display:block;margin:10px 0 4px;font-weight:600}
+button{font:inherit;font-weight:700;min-height:54px;padding:0 16px;border:0;border-radius:12px;background:var(--b);color:#fff;width:100%;margin-top:8px}
+button.g{background:var(--g)}button.o{background:var(--o)}button.x{background:#8896a0}button.w{background:#25d366;color:#000}button.s{width:auto;min-height:40px;font-size:14px}
+.chips{display:flex;gap:6px;margin:8px 0}.chips button{margin:0;min-height:40px;background:var(--c);color:var(--t);border:2px solid #9bb0bb66;font-size:14px}.chips button.on{background:var(--b);color:#fff}
+.st{display:grid;grid-template-columns:1fr 1fr;gap:6px}.st label{margin:0;font-weight:500;border:2px solid #9bb0bb66;border-radius:10px;padding:10px;display:flex;gap:8px;align-items:center}.st input{width:22px;min-height:22px;padding:0}
+.badge{font-size:12px;padding:2px 8px;border-radius:99px;background:#9bb0bb40}.badge.d{background:#1a7f3730;color:var(--g)}.badge.p{background:#e08a0030;color:var(--o)}
+table{width:100%;border-collapse:collapse}td{padding:4px 0}td:last-child{text-align:right;font-variant-numeric:tabular-nums}tr.t td{border-top:2px solid #9bb0bb88;font-weight:800;font-size:18px}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--c);border-top:1px solid #9bb0bb66;padding-bottom:env(safe-area-inset-bottom)}nav button{margin:0;border-radius:0;background:none;color:var(--m);min-height:58px;font-size:13px}nav button.on{color:var(--b)}
+#toast{position:fixed;left:12px;right:12px;bottom:80px;background:#222;color:#fff;padding:12px;border-radius:10px;display:none;z-index:9}
+</style></head><body><div id="app"></div><div id="toast"></div>
+<script src="billing-engine.js"></script>
+<script>
+const API_URL='PASTE_WEB_APP_URL_HERE';   // ← Apps Script web app /exec URL
+const $=s=>document.querySelector(s),LS=localStorage;
+const J=(k,d)=>{try{const v=JSON.parse(LS.getItem(k));return v==null?d:v}catch(e){return d}};
+const S=(k,v)=>{try{LS.setItem(k,JSON.stringify(v))}catch(e){toast('ගබඩා ඉඩ අවසන්! සමමුහුර්ත කරන්න.')}};
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const rs=n=>'රු. '+Number(n||0).toLocaleString('en-LK',{minimumFractionDigits:2,maximumFractionDigits:2});
+const today=()=>new Date().toLocaleDateString('sv-SE');
+let cfg=J('mw_cfg',{}),data=J('mw_data',null),Q=J('mw_q',[]),H=J('mw_hist',[]);
+let view='list',filter='all',q='',cur=null,gps=null,busy=false,locked=!!cfg.vhash&&!!data,hiddenAt=0;
+if(!cfg.dev){cfg.dev=Math.random().toString(36).slice(2,6).toUpperCase();S('mw_cfg',cfg)}
+H=H.filter(h=>Date.now()-Date.parse(h.ts)<7*864e5);
+const ST={Normal:'සාමාන්‍ය',Faulty:'මීටරය කැඩී ඇත',Closed:'මීටරය වසා ඇත',Rollover:'0 සිට ආපසු හැරී',Replaced:'මීටරය මාරු කළා'};
+const MSG={BELOW_PREVIOUS:'වත්මන් කියවීම පෙර කියවීමට වඩා අඩුයි. මීටරය 0 ට හැරුණා නම් "0 සිට ආපසු හැරී" තෝරන්න.',BAD_INPUT:'අගයන් පරීක්ෂා කරන්න.',NOT_ROLLOVER:'ආපසු හැරීමක් නොවේ (වත්මන් ≥ පෙර).',UNAUTHORIZED:'නැවත පිවිසෙන්න.'};
+function toast(t){const e=$('#toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',3500)}
+function save(){S('mw_cfg',cfg);S('mw_data',data);S('mw_q',Q);S('mw_hist',H)}
+async function api(action,d){const r=await fetch(cfg.api||API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action,token:cfg.token,data:d||{}})});return r.json()}
+async function vh(pin,salt){const k=await crypto.subtle.importKey('raw',new TextEncoder().encode(pin),'PBKDF2',false,['deriveBits']);const b=await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt:new TextEncoder().encode(salt),iterations:150000},k,256);return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}
+async function login(user,pin){
+  const r=await api('login',{user_id:user,pin});
+  if(!r.ok){toast(r.code==='LOCKED'?'ගිණුම අගුළු දමා ඇත. විනාඩි 15කට පසු උත්සාහ කරන්න.':'ID හෝ PIN වැරදියි'+(r.attempts_left!=null?' (උත්සාහ '+r.attempts_left+' ක් ඉතිරියි)':''));return false}
+  if(r.data.role==='Consumer'){toast('මෙය බිල් කඩන්නන් සඳහා පමණි');return false}
+  const salt=crypto.randomUUID();cfg={...cfg,user,token:r.data.token,exp:Date.parse(r.data.expires_at),salt,vhash:await vh(pin,salt)};save();
+  await refresh(true);locked=false;render();sync();return true}
+async function unlock(pin){
+  if(await vh(pin,cfg.salt)!==cfg.vhash){toast('PIN වැරදියි');return}
+  locked=false;
+  if(navigator.onLine&&(!cfg.token||cfg.exp-Date.now()<6e5)){try{const r=await api('login',{user_id:cfg.user,pin});if(r.ok){cfg.token=r.data.token;cfg.exp=Date.parse(r.data.expires_at);save()}}catch(e){}}
+  render();sync()}
+async function refresh(force){
+  if(!navigator.onLine||!cfg.token)return;if(Q.length&&!force)return;
+  try{const r=await api('getCollectorData');if(r.ok){const keep=Q.filter(i=>!i._err);data=r.data;keep.forEach(applyLocal);save()}else if(r.code==='UNAUTHORIZED'){cfg.token=''}}catch(e){}}
+function applyLocal(it){ // re-apply queued (unsynced) items onto fresh server data
+  const c=data&&data.customers.find(x=>x.Account_No===it.account_no);if(!c)return;
+  if(it.type==='reading'){c.read_this_month=true;if(it._prev!=null)c.Previous_Reading=it._prev;c.Arrears_BF=it._bal}else c.Arrears_BF=Math.round((c.Arrears_BF-it.cash_collected)*100)/100}
+async function sync(){
+  if(busy||!navigator.onLine||!Q.some(i=>!i._err)||locked)return;
+  if(!cfg.token||Date.now()>cfg.exp){view='login';cfg.token='';render();return}
+  busy=true;render();
+  try{
+    const items=Q.filter(i=>!i._err).slice(0,40),strip=o=>Object.fromEntries(Object.entries(o).filter(([k])=>k[0]!=='_'));
+    const r=await api('syncBatch',{items:items.map(strip)});
+    if(!r.ok){if(r.code==='UNAUTHORIZED'){cfg.token='';view='login'}else toast(r.message||'සමමුහුර්ත කළ නොහැක')}
+    else{r.data.results.forEach(x=>{const i=Q.findIndex(y=>y.uuid===x.uuid);if(i<0)return;
+      if(x.status==='ok'||x.status==='duplicate'){const h=H.find(y=>y.id===x.uuid||y.payId===x.uuid);if(h){h.synced=true;if(x.type==='reading'&&x.billed_amount!=null&&x.status==='ok'){h.total=x.balance_after!=null?h.total:h.total}}Q.splice(i,1)}
+      else Q[i]._err=x.code+': '+x.message})}
+  }catch(e){}
+  busy=false;save();if(!Q.some(i=>!i._err))await refresh();save();render()}
+const calc=(c,o)=>BillingEngine.computeLedger({account_no:c.Account_No,name:c.Name,address:c.Address,meter_no:c.Meter_No,category:c.Category,scheme:c.Scheme,previous_reading:c.Previous_Reading,current_reading:o.cur,arrears_bf:c.Arrears_BF,meter_status:o.status,meter_digits:+data.settings.METER_DIGITS||4,history_units:c.history_units||[],arrears_since:c.last_billed_date||undefined,billing_date:today(),old_meter_final_reading:o.oldFinal,new_meter_initial_reading:o.newInitial},data.tariff);
+function receiptNo(){cfg.seq=(cfg.seq||0)+1;S('mw_cfg',cfg);return'D'+cfg.dev+'-'+today().replace(/-/g,'').slice(2)+'-'+String(cfg.seq).padStart(3,'0')}
+const cash=()=>H.filter(h=>h.ts.slice(0,10)===new Date().toISOString().slice(0,10)||new Date(h.ts).toLocaleDateString('sv-SE')===today()).reduce((s,h)=>s+(h.recv||0),0);
+function fv(){const g=i=>{const e=$('#'+i);return e?e.value:''};const s=document.querySelector('input[name=st]:checked');
+  return{status:s?s.value:'Normal',cur:g('cr')===''?NaN:+g('cr'),oldFinal:g('of')===''?undefined:+g('of'),newInitial:g('ni')===''?0:+g('ni'),recv:+(g('rc')||0)}}
+function pvHtml(r){const l=r.ledger,w=r.warnings.filter(x=>!['RATES_UNVERIFIED'].includes(x)).map(x=>'<div class=err>⚠ '+esc(x)+'</div>').join('');
+  return'<table><tr><td>ඒකක'+(r.breakdown.estimated?' (ඇස්තමේන්තු)':'')+'</td><td>'+l.units+'</td></tr><tr><td>ස්ථාවර + අනිවාර්ය</td><td>'+rs(l.fixed_charge)+'</td></tr><tr><td>ජල ගාස්තු</td><td>'+rs(l.billed_amount)+'</td></tr><tr><td>පෙර හිඟ</td><td>'+rs(l.balance_bf)+'</td></tr><tr><td>වරෙන්තු 1%</td><td>'+rs(l.surcharge)+'</td></tr><tr class=t><td>එකතුව</td><td>'+rs(l.total)+'</td></tr></table>'+w}
+function preview(){const f=fv(),el=$('#pv');if(!el)return;try{if(!['Faulty','Closed'].includes(f.status)&&!Number.isInteger(f.cur)){el.innerHTML='';return}el.innerHTML=pvHtml(calc(cur,f))}catch(e){el.innerHTML='<div class=err>'+esc(MSG[e.code]||e.message)+'</div>'}}
+function openCust(a){cur=data.customers.find(c=>c.Account_No===a);gps=null;view='cust';render();
+  if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>{gps={lat:p.coords.latitude,lng:p.coords.longitude}},()=>{},{enableHighAccuracy:true,timeout:10000,maximumAge:30000})}
+function commit(){
+  const f=fv();let r;try{r=calc(cur,f)}catch(e){toast(MSG[e.code]||e.message);return}
+  if(cur.read_this_month){toast('මෙම මාසයට දැනටමත් කියවා ඇත');return}
+  const L=r.ledger,ts=new Date().toISOString(),est=r.breakdown.estimated,rd={type:'reading',uuid:crypto.randomUUID(),account_no:cur.Account_No,current_reading:est?null:f.cur,status:f.status,gps_lat:gps?gps.lat:null,gps_lng:gps?gps.lng:null,timestamp:ts};
+  if(f.status==='Replaced'){rd.old_meter_final_reading=f.oldFinal;rd.new_meter_initial_reading=f.newInitial;rd.new_meter_no=($('#nm').value||'').trim()}
+  const bal=Math.round((L.total-f.recv)*100)/100;rd._prev=est?cur.Previous_Reading:f.cur;rd._bal=bal;Q.push(rd);
+  let rec={id:rd.uuid,ts,acct:cur.Account_No,name:cur.Name,phone:cur.Phone,prev:cur.Previous_Reading,cur:rd._prev,units:L.units,fixed:L.fixed_charge,water:L.billed_amount,sur:L.surcharge,bf:L.balance_bf,total:L.total,recv:f.recv,bal,receipt:'',synced:false};
+  if(f.recv>0){const p={type:'payment',uuid:crypto.randomUUID(),account_no:cur.Account_No,cash_collected:f.recv,receipt_no:receiptNo(),timestamp:ts};Q.push(p);rec.receipt=p.receipt_no;rec.payId=p.uuid}
+  H.unshift(rec);cur.read_this_month=true;cur.Previous_Reading=rd._prev;cur.Arrears_BF=bal;cur.last_billed_date=today();if(!est)cur.history_units=[L.units,...(cur.history_units||[])].slice(0,3);
+  save();view='bill';window._rec=rec;render();sync()}
+function payOnly(){const v=+$('#rc').value;if(!(v>0)){toast('මුදල ඇතුළත් කරන්න');return}
+  const p={type:'payment',uuid:crypto.randomUUID(),account_no:cur.Account_No,cash_collected:v,receipt_no:receiptNo(),timestamp:new Date().toISOString()};
+  Q.push(p);cur.Arrears_BF=Math.round((cur.Arrears_BF-v)*100)/100;p._bal=cur.Arrears_BF;
+  H.unshift({id:p.uuid,payId:p.uuid,ts:p.timestamp,acct:cur.Account_No,name:cur.Name,phone:cur.Phone,recv:v,receipt:p.receipt_no,bal:cur.Arrears_BF,pay:1,synced:false});save();toast('ගෙවීම සුරැකිණි. ලදුපත: '+p.receipt_no);view='list';render();sync()}
+function waLink(h){let p=(h.phone||'').replace(/\D/g,'');if(p[0]==='0')p='94'+p.slice(1);
+  const m='මඩුල්ල ප්‍රදේශීය සභාව - ජල බිල්පත\nගිණුම: '+h.acct+'\nනම: '+h.name+'\nදිනය: '+new Date(h.ts).toLocaleDateString('sv-SE')+(h.pay?'':'\nපෙර: '+h.prev+'  දැන්: '+h.cur+'  ඒකක: '+h.units+'\nස්ථාවර+අනිවාර්ය: '+rs(h.fixed)+'\nජල ගාස්තු: '+rs(h.water)+'\nපෙර හිඟ: '+rs(h.bf)+'\nවරෙන්තු: '+rs(h.sur)+'\nමුළු: '+rs(h.total))+'\nලැබුණු: '+rs(h.recv)+(h.receipt?' ('+h.receipt+')':'')+'\nඉතිරි: '+rs(h.bal);
+  return'https://wa.me/'+p+'?text='+encodeURIComponent(m)}
+function hdr(){const d=data?data.customers.filter(c=>c.Status==='Active'):[],n=d.filter(c=>c.read_this_month).length,pend=Q.filter(i=>!i._err).length;
+  return'<header><div class=row><b>💧 මඩුල්ල</b><span class=m style="color:#fff">'+(navigator.onLine?'🟢':'🔴')+' '+(busy?'සමමුහුර්ත වෙමින්…':pend?'⏳ '+pend:'✅')+'</span></div><div class=row><span>'+n+'/'+d.length+'</span><span>අතේ මුදල්: <b>'+rs(cash())+'</b></span></div><div class=bar><i style="width:'+(d.length?n/d.length*100:0)+'%"></i></div></header>'}
+function nav(){return'<nav>'+[['list','📋','ලැයිස්තුව'],['today','🧾','අද බිල්'],['sync','🔄','සමමුහුර්ත']].map(([v,i,t])=>'<button data-v='+v+(view===v?' class=on':'')+'>'+i+'<br>'+t+'</button>').join('')+'</nav>'}
+function render(){const A=$('#app');
+  if(!data||view==='login'||!cfg.token&&!data){A.innerHTML='<main><div class=card><h2>💧 පිවිසීම</h2><label>පරිශීලක ID</label><input id=u value="'+esc(cfg.user||'')+'" autocapitalize=off><label>PIN</label><input id=p type=password inputmode=numeric class=big><button id=li>පිවිසෙන්න</button>'+(cfg.vhash?'<p class=m>දත්ත දැනටමත් දුරකථනයේ ඇත. මෙය පමණක් ලබාගැනීමට අන්තර්ජාලය අවශ්‍යයි.</p>':'')+'</div></main>';return}
+  if(locked){A.innerHTML='<main><div class=card><h2>🔒 අගුළු දමා ඇත</h2><p class=m>'+esc(cfg.user)+'</p><input id=p type=password inputmode=numeric class="big" autofocus><button id=ul>අගුළු අරින්න</button></div></main>';return}
+  let h=hdr(),b='';
+  if(view==='list'){const cs=data.customers.filter(c=>(filter==='all'||(filter==='un'&&!c.read_this_month&&c.Status==='Active')||(filter==='dn'&&c.read_this_month))&&(!q||(c.Name+c.Account_No+c.Address+c.Meter_No).toLowerCase().includes(q)));
+    b='<input id=q placeholder="🔎 නම / ගිණුම / ලිපිනය / මීටර අංකය" value="'+esc(q)+'"><div class=chips>'+[['all','සියල්ල'],['un','කියවා නැත'],['dn','කියවා ඇත']].map(([k,t])=>'<button data-f='+k+(filter===k?' class=on':'')+'>'+t+'</button>').join('')+'</div>'+
+    cs.map(c=>'<div class="card tap" data-a="'+esc(c.Account_No)+'"><div class=row><b>'+esc(c.Name)+'</b><span class="badge '+(c.read_this_month?'d':'p')+'">'+(c.Status!=='Active'?'විසන්ධි':c.read_this_month?'✅ කියවා ඇත':'⏳')+'</span></div><div class=m>'+esc(c.Address)+'</div><div class=m>'+esc(c.Account_No)+' · මීටරය '+esc(c.Meter_No)+' · පෙර '+c.Previous_Reading+' · හිඟ '+rs(c.Arrears_BF)+'</div></div>').join('')||'<p class=m>කිසිවක් නැත</p>'}
+  else if(view==='cust'){const c=cur;b='<div class=card><b>'+esc(c.Name)+'</b><div class=m>'+esc(c.Address)+'</div><div class=m>'+esc(c.Account_No)+' · '+esc(c.Category==='Domestic'?'ගෘහස්ථ':'වාණිජ')+' · '+esc(c.Scheme)+' · මීටරය '+esc(c.Meter_No)+'</div><div class=row style="margin-top:8px"><span>පෙර කියවීම</span><b>'+c.Previous_Reading+'</b></div><div class=row><span>හිඟ ශේෂය</span><b>'+rs(c.Arrears_BF)+'</b></div></div>'+
+    (c.Status!=='Active'?'<div class="card err">මෙම සම්බන්ධතාවය විසන්ධි කර ඇත.</div>':c.read_this_month?'<div class=card><b class=ok>✅ මෙම මාසයට කියවා ඇත</b><label>මුදල් ලැබීම (රු.)</label><input id=rc type=number inputmode=decimal class=big><button class=g id=po>ගෙවීම සුරකින්න</button></div>':
+    '<div class=card><label>මීටරයේ තත්ත්වය</label><div class=st>'+Object.keys(ST).map((k,i)=>'<label><input type=radio name=st value='+k+(i?'':' checked')+'>'+ST[k]+'</label>').join('')+'</div><div id=cx><label>වත්මන් කියවීම</label><input id=cr type=number inputmode=numeric class=big></div><div id=rp style="display:none"><label>පැරණි මීටරයේ අවසන් කියවීම</label><input id=of type=number inputmode=numeric><label>අලුත් මීටරයේ ආරම්භක කියවීම</label><input id=ni type=number inputmode=numeric value=0><label>අලුත් මීටර අංකය</label><input id=nm></div><div id=pv style="margin-top:10px"></div><label>මුදල් ලැබීම (රු.)</label><input id=rc type=number inputmode=decimal><button class=g id=cm>බිල සුරකින්න</button></div>')+'<button class=x data-v=list>← ආපසු</button>'}
+  else if(view==='bill'){const r=window._rec;b='<div class=card><h3>✅ බිල සුරැකිණි</h3><b>'+esc(r.name)+'</b><table><tr><td>ඒකක</td><td>'+r.units+'</td></tr><tr><td>ස්ථාවර+අනිවාර්ය</td><td>'+rs(r.fixed)+'</td></tr><tr><td>ජල ගාස්තු</td><td>'+rs(r.water)+'</td></tr><tr><td>පෙර හිඟ</td><td>'+rs(r.bf)+'</td></tr><tr><td>වරෙන්තු</td><td>'+rs(r.sur)+'</td></tr><tr class=t><td>මුළු</td><td>'+rs(r.total)+'</td></tr><tr><td>ලැබුණු '+esc(r.receipt)+'</td><td>'+rs(r.recv)+'</td></tr><tr><td>ඉතිරි</td><td>'+rs(r.bal)+'</td></tr></table><a href="'+waLink(r)+'" target=_blank rel=noopener><button class=w>WhatsApp මගින් යවන්න</button></a><button data-v=list>ඊළඟ</button></div>'}
+  else if(view==='today'){const t=H.filter(x=>new Date(x.ts).toLocaleDateString('sv-SE')===today());b=t.map(x=>'<div class=card><div class=row><b>'+esc(x.name)+'</b><span class="badge '+(x.synced?'d':'p')+'">'+(x.synced?'✅':'⏳')+'</span></div><div class=m>'+esc(x.acct)+(x.pay?' · ගෙවීම':' · ඒකක '+x.units+' · මුළු '+rs(x.total))+' · ලැබුණු '+rs(x.recv)+'</div><a href="'+waLink(x)+'" target=_blank rel=noopener><button class="w s">WhatsApp</button></a></div>').join('')||'<p class=m>අද බිල් නැත</p>'}
+  else if(view==='sync'){const er=Q.filter(i=>i._err);b='<div class=card><div class=row><span>සමමුහුර්ත වීමට ඇති</span><b>'+Q.filter(i=>!i._err).length+'</b></div><div class=m>අවසන් දත්ත යාවත්කාලය: '+(data.server_time?new Date(data.server_time).toLocaleString('si-LK'):'-')+'</div><button id=sy>දැන් සමමුහුර්ත කරන්න</button><button class=o id=rf>ලැයිස්තුව යාවත්කාලීන කරන්න</button></div>'+
+    er.map(i=>'<div class="card err">'+esc(i.account_no)+' · '+esc(i.type)+'<div class=m>'+esc(i._err)+'</div><button class="x s" data-d="'+i.uuid+'">ඉවත් කරන්න</button></div>').join('')+'<button class=x id=lk>🔒 අගුළු දමන්න</button><button class=x id=lo>පිටවීම</button>'}
+  A.innerHTML=h+'<main>'+b+'</main>'+(view==='bill'?'':nav())}
+document.addEventListener('click',async e=>{const t=e.target.closest('[data-v],[data-f],[data-a],[data-d],button');if(!t)return;
+  if(t.dataset.v){view=t.dataset.v;render()}else if(t.dataset.f){filter=t.dataset.f;render()}else if(t.dataset.a)openCust(t.dataset.a);
+  else if(t.dataset.d){Q=Q.filter(i=>i.uuid!==t.dataset.d);save();render()}
+  else if(t.id==='li')login($('#u').value.trim(),$('#p').value.trim());else if(t.id==='ul')unlock($('#p').value.trim());
+  else if(t.id==='cm')commit();else if(t.id==='po')payOnly();else if(t.id==='sy')sync();else if(t.id==='rf'){await refresh(false);render();toast(Q.length?'පළමුව සමමුහුර්ත කරන්න':'යාවත්කාලීන කළා')}
+  else if(t.id==='lk'){locked=true;render()}else if(t.id==='lo'){if(Q.length&&!confirm('සමමුහුර්ත නොකළ දත්ත ඇත! පිටවුවහොත් පවා ඒවා දුරකථනයේ රැඳේ. පිටවන්නද?'))return;cfg.token='';cfg.vhash='';data=null;save();view='list';render()}});
+document.addEventListener('input',e=>{if(e.target.id==='q'){q=e.target.value.toLowerCase();const p=e.target.selectionStart;render();const n=$('#q');n.focus();n.setSelectionRange(p,p)}
+  else if(e.target.name==='st'||e.target.id==='cr'||e.target.id==='of'||e.target.id==='ni'){const s=fv().status;$('#cx').style.display=['Faulty','Closed'].includes(s)?'none':'block';$('#rp').style.display=s==='Replaced'?'block':'none';preview()}});
+window.addEventListener('online',()=>{render();sync()});window.addEventListener('offline',render);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)hiddenAt=Date.now();else if(cfg.vhash&&data&&hiddenAt&&Date.now()-hiddenAt>3e5){locked=true;render()}});
+setInterval(()=>{if(!locked)sync()},60000);
+if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js');
+if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
+render();
+</script></body></html>
