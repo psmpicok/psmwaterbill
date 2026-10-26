@@ -25,7 +25,7 @@ nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--c);bord
 </style></head><body><div id="app"></div><div id="toast"></div>
 <script src="billing-engine.js"></script>
 <script>
-const API_URL='PASTE_WEB_APP_URL_HERE';   // ← Apps Script web app /exec URL
+const API_URL='https://script.google.com/macros/s/AKfycbwa6NKL7V9F92N4RlokUBc3yTtmAE2G8so9Izo1rr-ShWeyitTvDMMIGXPjuLBFV83P/exec';   // ← Apps Script web app /exec URL
 const $=s=>document.querySelector(s),LS=localStorage;
 const J=(k,d)=>{try{const v=JSON.parse(LS.getItem(k));return v==null?d:v}catch(e){return d}};
 const S=(k,v)=>{try{LS.setItem(k,JSON.stringify(v))}catch(e){toast('ගබඩා ඉඩ අවසන්! සමමුහුර්ත කරන්න.')}};
